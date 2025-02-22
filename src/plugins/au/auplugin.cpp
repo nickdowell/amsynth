@@ -33,7 +33,7 @@
 #define kPropertiesKey CFSTR("_properties")
 #define MIDI_BUFFER_SIZE 4096
 
-class AmsynthAU : public MusicDeviceBase
+class AmsynthAU : public MusicDeviceBase, public Parameter::Observer
 {
 public:
 	AmsynthAU(AudioComponentInstance inInstance)
@@ -58,11 +58,45 @@ public:
 		if (GetOutput(0)->GetStreamFormat().mChannelsPerFrame != 2) {
 			return kAudioUnitErr_FormatNotSupported;
 		}
+
 		_synth.setSampleRate(GetOutput(0)->GetStreamFormat().mSampleRate);
+
+		CFTimeInterval interval = 1.0 / 60.0;
+		_timer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + interval, interval, 0, 0, ^(CFRunLoopTimerRef) {
+			uint64_t dirty = _dirtyParams.exchange(0);
+			if (!dirty) return;
+			AUElement *element = GetElement(kAudioUnitScope_Global, 0);
+			for (int i = 0; i < kAmsynthParameterCount; i++) {
+				if (!(dirty & (1ull << i))) continue;
+				float value = _synth.getParameterValue((Param)i);
+				if (element->GetParameter(i) == value) continue;
+				element->SetParameter(i, value);
+				AudioUnitEvent auEvent;
+				auEvent.mArgument.mParameter.mAudioUnit = GetComponentInstance();
+				auEvent.mArgument.mParameter.mParameterID = i;
+				auEvent.mArgument.mParameter.mScope = kAudioUnitScope_Global;
+				auEvent.mArgument.mParameter.mElement = 0;
+				auEvent.mEventType = kAudioUnitEvent_ParameterValueChange;
+				AUEventListenerNotify(nullptr, nullptr, &auEvent);
+			}
+		});
+		CFRunLoopAddTimer(CFRunLoopGetMain(), _timer, kCFRunLoopCommonModes);
+		_synth._presetController->getCurrentPreset().addObserver(this);
+
 		_midiBuffer.resize(MIDI_BUFFER_SIZE);
 		_midiBufferPtr = _midiBuffer.data();
 		_midiEvents.reserve(MIDI_BUFFER_SIZE / 3);
+
 		return noErr;
+	}
+
+	void Cleanup() override
+	{
+		if (_timer) {
+			CFRunLoopRemoveTimer(CFRunLoopGetMain(), _timer, kCFRunLoopCommonModes);
+			CFRelease(_timer);
+			_timer = nullptr;
+		}
 	}
 
 	UInt32 SupportedNumChannels(const AUChannelInfo **outInfo) override
@@ -246,6 +280,12 @@ public:
 		return MusicDeviceBase::SetParameter(inID, inScope, inElement, inValue, inBufferOffsetInFrames);
 	}
 
+	void parameterDidChange(const Parameter &param) override
+	{
+		if (_inRender)
+			_dirtyParams |= ((uint64_t)1 << param.getId());
+	}
+
 	// MARK: AU state
 
 	OSStatus SaveState(CFPropertyListRef *outData) override
@@ -284,6 +324,7 @@ public:
 
 	OSStatus Render(AudioUnitRenderActionFlags &ioActionFlags, const AudioTimeStamp &inTimeStamp, UInt32 inNumberFrames) override
 	{
+		_inRender = true;
 		AUOutputElement *outputElement = GetOutput(0);
 		AudioBufferList &outputBufferList = outputElement->GetBufferList();
 
@@ -297,6 +338,7 @@ public:
 		_midiBufferPtr = _midiBuffer.data();
 		_midiEvents.clear();
 
+		_inRender = false;
 		return noErr;
 	}
 
@@ -314,9 +356,14 @@ public:
 
 private:
 	Synthesizer _synth;
+	static thread_local bool _inRender;
+	CFRunLoopTimerRef _timer {nullptr};
+	std::atomic<uint64_t> _dirtyParams {0};
 	unsigned char *_midiBufferPtr;
 	std::vector<uint8_t> _midiBuffer;
 	std::vector<amsynth_midi_event_t> _midiEvents;
 };
+
+thread_local bool AmsynthAU::_inRender;
 
 AUDIOCOMPONENT_ENTRY(AUMusicDeviceFactory, AmsynthAU)
