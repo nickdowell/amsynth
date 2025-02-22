@@ -939,7 +939,7 @@
 				};
 			};
 			buildConfigurationList = 016776082D57686E00DAC649 /* Build configuration list for PBXProject "amsynth" */;
-			compatibilityVersion = "Xcode 15.0";
+			compatibilityVersion = "Xcode 12.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
