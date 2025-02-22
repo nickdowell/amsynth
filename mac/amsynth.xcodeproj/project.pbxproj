@@ -1373,10 +1373,6 @@
 					"-Xlinker",
 					"-exported_symbol",
 					"-Xlinker",
-					_AmsynthAUEntry,
-					"-Xlinker",
-					"-exported_symbol",
-					"-Xlinker",
 					_AmsynthAUFactory,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.nickdowell.amsynth.au;
@@ -1398,10 +1394,6 @@
 				INFOPLIST_FILE = auinfo.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Audio/Plug-Ins/Components";
 				OTHER_LDFLAGS = (
-					"-Xlinker",
-					"-exported_symbol",
-					"-Xlinker",
-					_AmsynthAUEntry,
 					"-Xlinker",
 					"-exported_symbol",
 					"-Xlinker",
